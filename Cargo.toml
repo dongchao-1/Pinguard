@@ -1,0 +1,19 @@
+[package]
+name = "Pinguard"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+log = "0.4"
+env_logger = "0.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1", features = ["v4", "fast-rng"] }
+
+anyhow = "1.0"
+confy = "2.0"
+
+tokio = "1"
+shadowsocks-service = { version = "1.24.0", features = ["server"] }
+reqwest = { version = "0.13", features = ["json", "stream"] }
+futures-util = "0.3"
