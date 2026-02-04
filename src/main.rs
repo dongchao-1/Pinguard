@@ -1,7 +1,8 @@
 use std::io::Write;
 use std::{collections::BTreeSet, str::FromStr};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, Ipv4Addr};
 use std::path::Path;
+use std::time::Duration;
 use std::sync::{LazyLock, RwLock};
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
@@ -13,13 +14,14 @@ use shadowsocks_service::{
     config::{Config, ConfigType, ServerInstanceConfig},
     run_server,
     shadowsocks::{
-        config::{ServerAddr, ServerConfig},
+        config::ServerConfig,
         crypto::CipherKind,
     },
 };
 use tokio::io::copy_bidirectional;
 use tokio::net::{TcpListener, TcpStream};
 use uuid::Uuid;
+use moka::future::Cache;
 
 fn init_logger() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
@@ -154,6 +156,13 @@ async fn get_ip_location(ip: &str) -> String {
     format!("{}-{}", country, city)
 }
 
+static NOTIFICATION_CACHE: LazyLock<Cache<String, ()>> = LazyLock::new(|| {
+    Cache::builder()
+        .time_to_live(Duration::from_secs(30 * 60))
+        .max_capacity(10_000)
+        .build()
+});
+
 async fn send_auth_notification(ip: &str) -> Result<()> {
     info!("开始发送ntfy认证消息: {}", ip);
     let client = reqwestClient::new();
@@ -273,11 +282,10 @@ fn handle_message(json: &Value) {
 }
 
 async fn start_ss_service() -> Result<()> {
-    let addr_str = format!("{}:{}", "127.0.0.1", CONFIG.read().unwrap().get_ss_internal_port());
-    info!("启动Shadowsocks: {}", addr_str);
+    let internal_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, CONFIG.read().unwrap().get_ss_internal_port()));
+    info!("启动Shadowsocks: {}", internal_addr);
 
-    let bind_addr: SocketAddr = addr_str.parse()?;
-    let server_config = ServerConfig::new(ServerAddr::SocketAddr(bind_addr),
+    let server_config = ServerConfig::new(internal_addr,
         CONFIG.read().unwrap().get_ss_password(), CONFIG.read().unwrap().get_ss_method())?;
     // server_config.set_mode(shadowsocks_service::config::Mode::TcpOnly);
     let instance = ServerInstanceConfig::with_server_config(server_config);
@@ -295,15 +303,23 @@ async fn handle_client(mut client_socket: TcpStream, peer_addr: SocketAddr) -> R
 
     if !CONFIG.read().unwrap().check_ip(&ip) {
         warn!("未授权IP，通知用户: {}", ip);
-        if let Err(e) = send_auth_notification(&ip).await {
-            error!("发送通知失败: {}", e);
+        let entry = NOTIFICATION_CACHE.entry(ip.to_string())
+            .or_insert(())
+            .await;
+        if entry.is_fresh() {
+            info!("获得发送锁，通知用户: {}", ip);
+            if let Err(e) = send_auth_notification(&ip).await {
+                error!("发送通知失败: {}", e);
+                NOTIFICATION_CACHE.invalidate(&ip).await;
+            }
+        } else {
+            debug!("发送所冷却中: {}", ip);
         }
         return Ok(());
     }
     debug!("接受授权 IP 连接: {}", ip);
     
-    let internal_addr = format!("127.0.0.1:{}", CONFIG.read().unwrap().get_ss_internal_port());
-
+    let internal_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, CONFIG.read().unwrap().get_ss_internal_port()));
     match TcpStream::connect(internal_addr).await {
         Ok(mut internal_socket) => {
             match copy_bidirectional(&mut client_socket, &mut internal_socket).await {
