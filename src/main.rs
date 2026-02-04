@@ -1,6 +1,6 @@
 use std::io::Write;
 use std::{collections::BTreeSet, str::FromStr};
-use std::net::{SocketAddr, Ipv4Addr};
+use std::net::{SocketAddr, Ipv4Addr, IpAddr};
 use std::path::Path;
 use std::time::Duration;
 use std::sync::{LazyLock, RwLock};
@@ -57,7 +57,7 @@ struct PinguardConfig {
     ntfy_req_topic: String,
     ntfy_resp_topic: String,
 
-    whitelist: BTreeSet<String>,
+    whitelist: BTreeSet<IpAddr>,
 }
 
 impl PinguardConfig {
@@ -93,17 +93,17 @@ impl PinguardConfig {
         self.ntfy_resp_topic.clone()
     }
 
-    fn check_ip(&self, ip: &str) -> bool {
+    fn check_ip(&self, ip: &IpAddr) -> bool {
         self.whitelist.contains(ip)
     }
 
-    fn add_ip(&mut self, ip: &str) {
-        self.whitelist.insert(ip.to_string());
+    fn add_ip(&mut self, ip: &IpAddr) {
+        self.whitelist.insert(*ip);
         confy::store_path("./pinguard.yaml", self).unwrap()
     }
 
-    fn del_ip(&mut self, ip: &str) {
-        self.whitelist.remove(&ip.to_string());
+    fn del_ip(&mut self, ip: &IpAddr) {
+        self.whitelist.remove(ip);
         confy::store_path("./pinguard.yaml", self).unwrap()
     }
 }
@@ -156,7 +156,7 @@ async fn get_ip_location(ip: &str) -> String {
     format!("{}-{}", country, city)
 }
 
-static NOTIFICATION_CACHE: LazyLock<Cache<String, ()>> = LazyLock::new(|| {
+static NOTIFICATION_CACHE: LazyLock<Cache<IpAddr, ()>> = LazyLock::new(|| {
     Cache::builder()
         .time_to_live(Duration::from_secs(30 * 60))
         .max_capacity(10_000)
@@ -165,7 +165,10 @@ static NOTIFICATION_CACHE: LazyLock<Cache<String, ()>> = LazyLock::new(|| {
 
 async fn send_auth_notification(ip: &str) -> Result<()> {
     info!("开始发送ntfy认证消息: {}", ip);
-    let client = reqwestClient::new();
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5)) // 5秒超时
+        .build()?;
 
     let resp_url = format!("https://ntfy.sh/{}", &CONFIG.read().unwrap().get_ntfy_resp_topic());
     let actions = serde_json::json!([
@@ -207,7 +210,7 @@ async fn send_auth_notification(ip: &str) -> Result<()> {
     Ok(())
 }
 
-async fn start_ntfy_servive() {
+async fn start_ntfy_service() {
     info!("开始监听ntfy消息");
     let client = reqwestClient::new();
     let resp_url = format!("https://ntfy.sh/{}/json", &CONFIG.read().unwrap().get_ntfy_resp_topic());
@@ -263,13 +266,13 @@ fn handle_message(json: &Value) {
         match serde_json::from_str::<Value>(msg_body) {
             Ok(j) => {
                 if j["action"] == "USER_ALLOWED" {
-                    let new_ip = j["ip"].as_str().unwrap();
+                    let new_ip = IpAddr::from_str(j["ip"].as_str().unwrap()).unwrap();
                     info!("收到允许访问通知: {}", new_ip);
-                    CONFIG.write().unwrap().add_ip(new_ip);
+                    CONFIG.write().unwrap().add_ip(&new_ip);
                 } else if j["action"] == "USER_DENIED" {
-                    let new_ip = j["ip"].as_str().unwrap();
+                    let new_ip = IpAddr::from_str(j["ip"].as_str().unwrap()).unwrap();
                     info!("收到拒绝访问通知: {}", new_ip);
-                    CONFIG.write().unwrap().del_ip(new_ip);
+                    CONFIG.write().unwrap().del_ip(&new_ip);
                 } else {
                     warn!("action不合法: {}", j["action"])
                 }
@@ -298,17 +301,17 @@ async fn start_ss_service() -> Result<()> {
 }
 
 async fn handle_client(mut client_socket: TcpStream, peer_addr: SocketAddr) -> Result<()> {
-    let ip = peer_addr.ip().to_string();
+    let ip = peer_addr.ip();
     debug!("新链接，ip: {}", ip);
 
     if !CONFIG.read().unwrap().check_ip(&ip) {
         warn!("未授权IP，通知用户: {}", ip);
-        let entry = NOTIFICATION_CACHE.entry(ip.to_string())
+        let entry = NOTIFICATION_CACHE.entry(ip)
             .or_insert(())
             .await;
         if entry.is_fresh() {
             info!("获得发送锁，通知用户: {}", ip);
-            if let Err(e) = send_auth_notification(&ip).await {
+            if let Err(e) = send_auth_notification(&ip.to_string()).await {
                 error!("发送通知失败: {}", e);
                 NOTIFICATION_CACHE.invalidate(&ip).await;
             }
@@ -355,7 +358,7 @@ async fn main() -> Result<()> {
     info!("请求频道: {}", &CONFIG.read().unwrap().get_ntfy_req_topic());
     info!("响应频道: {}", &CONFIG.read().unwrap().get_ntfy_resp_topic());
     tokio::spawn(async {
-        start_ntfy_servive().await
+        start_ntfy_service().await
     });
 
     let bind_addr = format!("{}:{}", CONFIG.read().unwrap().get_public_ip(), CONFIG.read().unwrap().get_public_port());
