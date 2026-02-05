@@ -16,6 +16,7 @@ use shadowsocks_service::{
     shadowsocks::{
         config::ServerConfig,
         crypto::CipherKind,
+        config::Mode::TcpOnly
     },
 };
 use tokio::io::copy_bidirectional;
@@ -163,6 +164,31 @@ static NOTIFICATION_CACHE: LazyLock<Cache<IpAddr, ()>> = LazyLock::new(|| {
         .build()
 });
 
+async fn send_start_service_notification() -> Result<()> {
+    info!("开始发送服务启动消息");
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5)) // 5秒超时
+        .build()?;
+    let req_url = format!("https://ntfy.sh/{}", &CONFIG.read().unwrap().get_ntfy_req_topic());
+    let resp = client
+        .post(&req_url)
+        .header("Title", "认证服务已启动")
+        .header("Priority", "high")
+        .header("Tags", "warning")
+        .body(format!(
+            "监听 {}:{}",
+            CONFIG.read().unwrap().get_public_ip(), CONFIG.read().unwrap().get_public_port()
+        ))
+        .send()
+        .await?
+        .text()
+        .await?;
+    debug!("发送结果: {}", resp);
+    info!("消息已发送");
+    Ok(())
+}
+
 async fn send_auth_notification(ip: &str) -> Result<()> {
     info!("开始发送ntfy认证消息: {}", ip);
 
@@ -193,9 +219,7 @@ async fn send_auth_notification(ip: &str) -> Result<()> {
     let req_url = format!("https://ntfy.sh/{}", &CONFIG.read().unwrap().get_ntfy_req_topic());
     let resp = client
         .post(&req_url)
-        .header("Title", "服务器登录请求")
-        .header("Priority", "high")
-        .header("Tags", "warning,shield")
+        .header("Title", "新ip认证")
         .header("Actions", actions.to_string())
         .body(format!(
             "检测到 IP: {}({}) 请求访问，是否允许？",
@@ -288,9 +312,9 @@ async fn start_ss_service() -> Result<()> {
     let internal_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, CONFIG.read().unwrap().get_ss_internal_port()));
     info!("启动Shadowsocks: {}", internal_addr);
 
-    let server_config = ServerConfig::new(internal_addr,
+    let mut server_config = ServerConfig::new(internal_addr,
         CONFIG.read().unwrap().get_ss_password(), CONFIG.read().unwrap().get_ss_method())?;
-    // server_config.set_mode(shadowsocks_service::config::Mode::TcpOnly);
+    server_config.set_mode(TcpOnly);
     let instance = ServerInstanceConfig::with_server_config(server_config);
     let mut config = Config::new(ConfigType::Server);
     config.server.push(instance);
@@ -346,8 +370,10 @@ async fn handle_client(mut client_socket: TcpStream, peer_addr: SocketAddr) -> R
 #[tokio::main]
 async fn main() -> Result<()> {
     init_logger();
-    // TODO 添加服务启动nyft
     // TODO 检查unwarp
+    tokio::spawn(async {
+        send_start_service_notification().await
+    });
 
     info!("启动ss转发服务");
     tokio::spawn(async {
