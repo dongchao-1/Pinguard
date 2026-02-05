@@ -4,6 +4,7 @@ use std::net::{SocketAddr, Ipv4Addr, IpAddr};
 use std::path::Path;
 use std::time::Duration;
 use std::sync::{LazyLock, RwLock};
+use std::process;
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use log::{error, info, warn, debug};
@@ -63,7 +64,10 @@ struct PinguardConfig {
 
 impl PinguardConfig {
     fn load() -> Self {
-        confy::load_path(Path::new("./pinguard.yaml")).unwrap()
+        confy::load_path(Path::new("./pinguard.yaml")).unwrap_or_else(|e| {
+            error!("配置文件加载失败： {}", e);
+            process::exit(1);
+        })
     }
 
     fn get_public_ip(&self) -> String {
@@ -83,7 +87,10 @@ impl PinguardConfig {
     }
 
     fn get_ss_method(&self) -> CipherKind {
-        CipherKind::from_str(&self.ss_method).unwrap()
+        CipherKind::from_str(&self.ss_method).unwrap_or_else(|e| {
+            error!("ss_method错误: {}", e);
+            process::exit(1);
+        })
     }
 
     fn get_ntfy_req_topic(&self) -> String {
@@ -100,12 +107,18 @@ impl PinguardConfig {
 
     fn add_ip(&mut self, ip: &IpAddr) {
         self.whitelist.insert(*ip);
-        confy::store_path("./pinguard.yaml", self).unwrap()
+        confy::store_path("./pinguard.yaml", self).unwrap_or_else(|e| {
+            error!("保存配置文件失败: {}", e);
+            process::exit(1);
+        })
     }
 
     fn del_ip(&mut self, ip: &IpAddr) {
         self.whitelist.remove(ip);
-        confy::store_path("./pinguard.yaml", self).unwrap()
+        confy::store_path("./pinguard.yaml", self).unwrap_or_else(|e| {
+            error!("保存配置文件失败: {}", e);
+            process::exit(1);
+        })
     }
 }
 
@@ -370,7 +383,6 @@ async fn handle_client(mut client_socket: TcpStream, peer_addr: SocketAddr) -> R
 #[tokio::main]
 async fn main() -> Result<()> {
     init_logger();
-    // TODO 检查unwarp
     tokio::spawn(async {
         send_start_service_notification().await
     });
