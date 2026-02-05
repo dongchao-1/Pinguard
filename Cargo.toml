@@ -18,3 +18,7 @@ shadowsocks-service = { version = "1.24.0", features = ["server"] }
 reqwest = { version = "0.13", features = ["json", "stream"] }
 moka = { version = "0.12", features = ["future"] }
 futures-util = "0.3"
+
+[profile.release]
+strip = true
+lto = true

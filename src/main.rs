@@ -50,7 +50,7 @@ struct PinguardConfig {
     public_ip: String,
     public_port: u16,
 
-    ss_internal_port: u16,
+    ss_internal_port: u16, // TODO 随机端口？还是能不要端口？
     ss_password: String,
     ss_method: String,
 
@@ -114,7 +114,7 @@ impl ::std::default::Default for PinguardConfig {
             public_ip: "0.0.0.0".to_string(),
             public_port: 8388,
             ss_internal_port: 10999,
-            ss_password: "my_strong_password".to_string(),
+            ss_password: Uuid::new_v4().to_string(),
             ss_method: "chacha20-ietf-poly1305".to_string(),
             ntfy_req_topic: format!("req-{}", Uuid::new_v4()),
             ntfy_resp_topic: format!("resp-{}", Uuid::new_v4()),
@@ -346,6 +346,8 @@ async fn handle_client(mut client_socket: TcpStream, peer_addr: SocketAddr) -> R
 #[tokio::main]
 async fn main() -> Result<()> {
     init_logger();
+    // TODO 添加服务启动nyft
+    // TODO 检查unwarp
 
     info!("启动ss转发服务");
     tokio::spawn(async {
