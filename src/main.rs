@@ -52,7 +52,7 @@ struct PinguardConfig {
     public_ip: String,
     public_port: u16,
 
-    ss_internal_port: u16, // TODO 随机端口？还是能不要端口？
+    ss_internal_port: u16,
     ss_password: String,
     ss_method: String,
 
@@ -127,7 +127,7 @@ impl ::std::default::Default for PinguardConfig {
         Self {
             public_ip: "0.0.0.0".to_string(),
             public_port: 8388,
-            ss_internal_port: 10999,
+            ss_internal_port: 51281,
             ss_password: Uuid::new_v4().to_string(),
             ss_method: "chacha20-ietf-poly1305".to_string(),
             ntfy_req_topic: format!("req-{}", Uuid::new_v4()),
