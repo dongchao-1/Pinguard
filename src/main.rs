@@ -4,10 +4,11 @@ use std::net::{SocketAddr, Ipv4Addr, IpAddr};
 use std::path::Path;
 use std::time::Duration;
 use std::sync::{LazyLock, RwLock};
-use std::process;
+use std::{env, process};
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use log::{error, info, warn, debug};
+use chrono::Local;
 use reqwest::Client as reqwestClient;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
@@ -36,7 +37,7 @@ fn init_logger() {
         writeln!(
             buf,
             "{} [{style}{}{style:#}] ({}:{}) [{:?}] - {}",
-            buf.timestamp(),
+            Local::now().format("%Y-%m-%dT%H:%M:%S"),
             record.level(),
             file,
             line,
@@ -342,7 +343,7 @@ async fn handle_client(mut client_socket: TcpStream, peer_addr: SocketAddr) -> R
     debug!("新链接，ip: {}", ip);
 
     if !CONFIG.read().unwrap().check_ip(&ip) {
-        warn!("未授权IP，通知用户: {}", ip);
+        debug!("未授权IP: {}", ip);
         let entry = NOTIFICATION_CACHE.entry(ip)
             .or_insert(())
             .await;
@@ -382,6 +383,12 @@ async fn handle_client(mut client_socket: TcpStream, peer_addr: SocketAddr) -> R
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let work_dir = env::current_exe().unwrap().parent().unwrap().to_path_buf();
+    if let Err(e) = env::set_current_dir(&work_dir) {
+        eprintln!("致命错误：无法切换工作目录到 {:?}: {}", work_dir, e);
+        std::process::exit(1);
+    }
+
     init_logger();
     tokio::spawn(async {
         send_start_service_notification().await

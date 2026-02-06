@@ -28,13 +28,13 @@ USE_PROCD=1
 
 # 你的程序所在路径
 PROG=/opt/pinguard/pinguard
-# 你的程序所在的文件夹（因为你的代码里读取配置用的是 ./pinguard.yaml 相对路径）
-WORK_DIR=/opt/pinguard
 
 start_service() {
     procd_open_instance
 
-    procd_set_param command /bin/sh -c "cd $WORK_DIR && $PROG 2>&1 | logger -t pinguard"
+    procd_set_param env TZ="CST-8"
+
+    procd_set_param command "$PROG"
 
     # 【核心】开启保活：如果挂了，自动重启
     # respawn threshold timeout retry
@@ -58,6 +58,7 @@ chmod +x /etc/init.d/pinguard
 /etc/init.d/pinguard start
 /etc/init.d/pinguard status
 /etc/init.d/pinguard stop
+nohup /etc/init.d/pinguard restart >/dev/null 2>&1 &
 ```
 
 查看日志
