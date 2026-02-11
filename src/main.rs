@@ -23,6 +23,7 @@ use shadowsocks_service::{
 };
 use tokio::io::copy_bidirectional;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 use moka::future::Cache;
 
@@ -373,6 +374,9 @@ async fn handle_client(mut client_socket: TcpStream, peer_addr: SocketAddr) -> R
                     debug!("转发连接中断: {}", e);
                 }
             }
+
+            let _ = client_socket.shutdown().await;
+            let _ = internal_socket.shutdown().await;
         }
         Err(e) => {
             error!("无法连接内部 SS 服务: {}", e);
