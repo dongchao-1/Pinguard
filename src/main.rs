@@ -37,7 +37,7 @@ fn init_logger() {
 
         writeln!(
             buf,
-            "{} [{style}{}{style:#}] ({}:{}) [{:?}] - {}",
+            "pinguard {} [{style}{}{style:#}] ({}:{}) [{:?}] - {}",
             Local::now().format("%Y-%m-%dT%H:%M:%S"),
             record.level(),
             file,
@@ -335,7 +335,6 @@ async fn start_ss_service() -> Result<()> {
     config.server.push(instance);
 
     run_server(config).await?;
-    info!("ss 服务启动成功");
     Ok(())
 }
 
@@ -402,6 +401,7 @@ async fn main() -> Result<()> {
     tokio::spawn(async {
         if let Err(e) = start_ss_service().await {
             error!("内部 Shadowsocks 服务崩溃: {}", e);
+            std::process::exit(1);
         }
     });
 

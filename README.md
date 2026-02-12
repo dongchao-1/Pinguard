@@ -34,7 +34,8 @@ start_service() {
 
     procd_set_param env TZ="CST-8"
 
-    procd_set_param command "$PROG"
+    # procd_set_param command "$PROG"
+    procd_set_param command /bin/sh -c "ulimit -n 65535; exec $PROG"
 
     # 【核心】开启保活：如果挂了，自动重启
     # respawn threshold timeout retry
@@ -65,4 +66,8 @@ nohup /etc/init.d/pinguard restart >/dev/null 2>&1 &
 ```
 logread -f -e pinguard
 logread -e pinguard
+
+ls /proc/6256/fd | wc -l
+lsof -p 6256 | less
+netstat -antp | grep 6256
 ```
